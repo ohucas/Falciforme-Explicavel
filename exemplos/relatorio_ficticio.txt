@@ -1,0 +1,10 @@
+DOCUMENTO INTEIRAMENTE FICTÍCIO PARA TESTAR A LEITURA — SEM PACIENTE REAL
+Relatório emitido em 05/10/2026.
+Exames citados, com unidades transcritas para o exemplo de software:
+Coleta de 02/04/2026: hemoglobina 9,1 g/dL; plaquetas 310 mil/µL.
+Coleta de 03/07/2026: hemoglobina 8,9 g/dL; plaquetas 325 mil/µL.
+Coleta de 01/10/2026: hemoglobina 9,3 g/dL; plaquetas 315 mil/µL.
+Na avaliação histórica não havia relato de febre. Não assumir que essa informação descreve o estado atual.
+Discussão: hipótese e observação clínica não equivalem a diagnóstico confirmado pelo software.
+Caso Hb < 7, procurar avaliação conforme plano da equipe. Esta frase é CONDICIONAL e não é resultado de coleta.
+O documento não contém VCM nem leucócitos. Não preencher essas medidas por estimativa.

@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+dados_pessoais/
+relatorios_pessoais/
+.env
+*.pdf
+*.joblib
+dados_pesquisa/
+modelos_locais/
+*.pkl
+*.pickle
+*.sqlite
+*.db
+auditoria_experimento.json
