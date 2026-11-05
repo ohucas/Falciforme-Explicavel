@@ -1,5 +1,3 @@
-"""Cadastro separado das variáveis de pesquisa e do histórico laboratorial."""
-
 from dataclasses import dataclass
 import math
 import re
@@ -14,8 +12,8 @@ class Paciente:
     sexo: str = "Não informado"
     subtipo: str = "Outro / não informado"
     cid_versao: str = "CID-10"
-    cid_codigo: str = ""
-    cid_descricao: str = ""
+    cid_codigo: str = "D57.0"
+    cid_descricao: str = "Anemia falciforme com crise"
 
 
 def validar_paciente(paciente):
@@ -33,6 +31,14 @@ def validar_paciente(paciente):
         raise ValueError("Nome limitado a 160 caracteres.")
     if len(paciente.cid_codigo) > 30 or len(paciente.cid_descricao) > 300:
         raise ValueError("Confira o tamanho dos campos de CID.")
+    if (
+        paciente.cid_versao != "CID-10"
+        or paciente.cid_codigo != "D57.0"
+        or paciente.cid_descricao != "Anemia falciforme com crise"
+    ):
+        raise ValueError(
+            "Esta aplicação aceita somente CID D57.0 — Anemia falciforme com crise."
+        )
     return paciente
 
 

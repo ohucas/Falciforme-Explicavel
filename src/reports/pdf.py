@@ -192,11 +192,9 @@ def relatorio_pdf(
         ("Subtipo confirmado", paciente.subtipo),
     ]:
         texto(f"{rotulo}: {valor if valor is not None else 'Não informado'}")
+    texto(f"CID {paciente.cid_codigo} | {paciente.cid_descricao}")
     texto(
-        f"{paciente.cid_versao}: {paciente.cid_codigo or 'Não informada'} | {paciente.cid_descricao}"
-    )
-    texto(
-        "CID transcrita pelo médico, sem confirmação diagnóstica ou consulta automática a catálogo. Idade, peso e altura não geram faixas automáticas."
+        "Código fixo do escopo da aplicação, cuja adequação deve ser confirmada pelo médico. Não indica por si só crise atual nem confirma diagnóstico. Idade, peso e altura não geram faixas automáticas."
     )
     texto(contexto)
     titulo("Sinais atuais registrados")

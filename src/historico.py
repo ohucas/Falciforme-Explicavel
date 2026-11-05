@@ -1,5 +1,3 @@
-"""Coletas flexíveis e eventos com precisão temporal explícita."""
-
 from calendar import monthrange
 from datetime import date
 import numpy as np

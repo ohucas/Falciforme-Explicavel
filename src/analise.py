@@ -1,9 +1,8 @@
-"""Núcleo determinístico e auditável, sem LLM, treinamento ou rede."""
-
 from datetime import date
 import math
 import re
 import pandas as pd
+from .datas import normalizar_data_coleta, remover_linhas_vazias
 
 PARAMETROS = {
     "hemoglobina": ("Hemoglobina", "g/dL"),
@@ -56,12 +55,19 @@ def vazio():
 
 
 def validar_exames(df, hoje=None, min_coletas=3, max_coletas=3):
-    """Contrato estrito: 3 datas ISO distintas; colunas numéricas em unidades fixadas."""
-    d = df.copy().reset_index(drop=True)
+    """Valida coletas distintas e devolve datas normalizadas, sem criar resultados."""
+    d = remover_linhas_vazias(df).reset_index(drop=True)
     hoje = hoje or date.today()
+    if d.empty:
+        raise ValueError(
+            "Nenhuma coleta preenchida. Ao importar documentos, selecione os "
+            "resultados em usar, confirme suas datas de coleta e a conferência "
+            "documental antes de analisar."
+        )
     if not min_coletas <= len(d) <= max_coletas:
         raise ValueError(
-            f"Informe entre {min_coletas} e {max_coletas} coletas, sem duplicar exames."
+            f"Foram preenchidas {len(d)} coletas. Informe entre {min_coletas} "
+            f"e {max_coletas} coletas distintas para comparar."
         )
     exigidas = {"data_coleta", *PARAMETROS}
     faltam = exigidas - set(d.columns)
@@ -75,21 +81,11 @@ def validar_exames(df, hoje=None, min_coletas=3, max_coletas=3):
             + ". Use o modelo sem identificadores pessoais."
         )
     datas = []
-    for value in d["data_coleta"]:
-        s = (
-            value.date().isoformat()
-            if isinstance(value, pd.Timestamp)
-            else str(value).strip()
-        )
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-            raise ValueError("Use datas reais no formato AAAA-MM-DD.")
+    for indice, value in enumerate(d["data_coleta"], start=1):
         try:
-            dt = date.fromisoformat(s)
-        except ValueError:
-            raise ValueError("Data de coleta inválida.") from None
-        if dt > hoje:
-            raise ValueError("Uma coleta não pode ter data futura.")
-        datas.append(dt)
+            datas.append(normalizar_data_coleta(value, hoje))
+        except ValueError as erro:
+            raise ValueError(f"Coleta {indice}: {erro}.") from None
     if len(set(datas)) != len(datas):
         raise ValueError("As datas de coleta devem ser diferentes.")
     d["data_coleta"] = pd.to_datetime(datas)
@@ -178,7 +174,16 @@ def comparar(exames, refs=None, basal_confirmado=False):
         media = None if a is None or b is None else (a + b) / 2
         minimo = None if media is None else min(a, b)
         maximo = None if media is None else max(a, b)
-        tendencia = "Dados insuficientes para comparar os três exames"
+        tendencia = "Dados insuficientes deste parâmetro para comparar as três últimas coletas"
+        if len(d) == 2:
+            if b is None or c is None:
+                tendencia = "Dados insuficientes deste parâmetro nas duas coletas"
+            elif b == c:
+                tendencia = "Mesmo valor nas duas coletas"
+            elif c > b:
+                tendencia = "Aumento entre as duas coletas"
+            else:
+                tendencia = "Redução entre as duas coletas"
         if None not in (a, b, c):
             if a == b == c:
                 tendencia = "Mesmo valor nas três coletas"

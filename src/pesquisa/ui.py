@@ -27,7 +27,7 @@ def painel_treinamento(chave):
         "text/csv",
     )
     st.caption(
-        "A preparação da coorte e dos rótulos é documentada em docs/PESQUISA.md. A aplicação não deduz eventos futuros de relatórios nem transforma ausência de registro em ausência de crise."
+        "A coorte e seus rótulos devem ser preparados e revisados antes do treinamento. A aplicação não deduz eventos futuros de relatórios nem transforma ausência de registro em ausência de crise."
     )
     arquivo = st.file_uploader(
         "Coorte de pesquisa em CSV UTF-8, separado por vírgulas",

@@ -121,17 +121,14 @@ with abas[0]:
         "Deixe desconhecidos em branco. Confira as unidades e os valores informados. Não há ajuste automático de normalidade por idade, peso, altura ou subtipo."
     )
 with abas[1]:
-    versao_cid = st.selectbox(
-        "Classificação informada", ["CID-57.0", "Outra"], key="cidv" + chave
-    )
-    codigo_cid = st.text_input(
-        "Código CID registrado pelo médico", max_chars=30, key="cid" + chave
-    )
-    descricao_cid = st.text_input(
-        "Descrição correspondente", max_chars=300, key="cidd" + chave
-    )
+    versao_cid = "CID-10"
+    codigo_cid = "D57.0"
+    descricao_cid = "Anemia falciforme com crise"
+    st.subheader("CID D57.0 — Anemia falciforme com crise")
     st.caption(
-        "Registro livre, sem busca automática de catálogo e sem validação do diagnóstico. Confira código, versão e descrição na fonte adotada pelo serviço."
+        "Escopo exclusivo desta aplicação. O médico deve confirmar a adequação "
+        "do código ao caso. O sistema não atribui diagnóstico nem conclui "
+        "que exista uma crise atual a partir deste campo."
     )
     hidroxiureia = st.selectbox(
         "Uso de hidroxiureia",
@@ -266,8 +263,18 @@ with abas[3]:
             except (ValueError, UnicodeError) as erro:
                 st.error(str(erro))
                 st.stop()
+    versao_base = hashlib.sha256(
+        (modo + base.to_json(date_format="iso")).encode()
+    ).hexdigest()[:12]
+    st.caption(
+        "Data da coleta: AAAA-MM-DD ou DD/MM/AAAA. Linhas inteiramente vazias não são consideradas exames."
+    )
     exames_editados = st.data_editor(
-        base, num_rows="dynamic", hide_index=True, key="exames" + chave, width="stretch"
+        base,
+        num_rows="dynamic",
+        hide_index=True,
+        key="exames" + chave + versao_base,
+        width="stretch",
     )
     st.markdown("**Referências opcionais do laudo**")
     referencias = st.data_editor(
@@ -281,12 +288,20 @@ with abas[3]:
         "Os basais preenchidos foram revisados pelo médico", key="basal" + chave
     )
     conferencia = st.checkbox(
-        "Conferi os dados do paciente, as crises, datas, unidades, valores e referências; os documentos pertencem à mesma pessoa",
+        "Conferi os dados do paciente, a adequação do CID D57.0, as crises, datas, unidades, valores e referências; os documentos pertencem à mesma pessoa",
         key="conf" + chave,
     )
     if st.button("Analisar dados conferidos", key="analisar" + chave):
         if not conferencia:
             st.error("Confirme a conferência médica antes de analisar.")
+        elif modo == "Ler relatórios" and (
+            proveniencia is None or not proveniencia.get("confirmado", False)
+        ):
+            st.error(
+                "A importação documental ainda não foi confirmada. Marque usar nos "
+                "resultados, confira as datas de coleta e confirme a conferência "
+                "documental e as datas sugeridas pelo atendimento, quando houver. Corrija também os avisos exibidos acima."
+            )
         elif crises is None:
             st.error("Corrija o histórico de crises.")
         else:
@@ -345,7 +360,7 @@ with abas[4]:
                 [
                     "nome",
                     "unidade",
-                    "antigo",
+                    *(["antigo"] if len(d) >= 3 else []),
                     "anterior",
                     "atual",
                     "diferenca",
@@ -356,7 +371,9 @@ with abas[4]:
             hide_index=True,
         )
         st.caption(
-            "A comparação acima usa as três últimas coletas. Os gráficos mostram todo o histórico disponível até a última coleta."
+            f"A comparação acima usa as {min(3, len(d))} últimas coletas. "
+            "Os gráficos mostram todo o histórico disponível até a última coleta. "
+            "Campos vazios indicam resultados ausentes; não são substituídos por zero."
         )
         for parametro, (rotulo, unidade) in PARAMETROS.items():
             if not d[parametro].notna().any():

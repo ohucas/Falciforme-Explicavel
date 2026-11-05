@@ -13,3 +13,9 @@ modelos_locais/
 *.sqlite
 *.db
 auditoria_experimento.json
+
+# Empacotamento local
+build/
+dist/
+instalador/
+*.zip

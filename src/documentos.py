@@ -10,7 +10,10 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 import pandas as pd
+from .datas import normalizar_data_coleta
 from .analise import PARAMETROS
+from .linhas_documentais import linhas_de_resultados
+from .ocr_local import reconhecer_imagem, reconhecer_pagina_pdf
 
 COLUNAS = [
     "usar",
@@ -22,19 +25,20 @@ COLUNAS = [
     "unidade_origem",
     "unidade_confirmada",
     "data_coleta",
+    "data_contexto",
     "trecho",
     "observacao",
 ]
 ALIASES = {
     "hemoglobina": r"hemoglobina(?:\s+total)?|hb(?![a-zA-Z0-9])",
     "hematocrito": r"hemat[oó]crito|ht(?![a-zA-Z0-9])",
-    "hemacias": r"hem[aá]cias|eritr[oó]citos",
-    "vcm": r"vcm",
-    "hcm": r"hcm",
-    "chcm": r"chcm",
+    "hemacias": r"hem[aá]cias|eritr[oó]citos|rbc",
+    "vcm": r"v\.?\s*c\.?\s*m\.?",
+    "hcm": r"h\.?\s*c\.?\s*m\.?",
+    "chcm": r"c\.?\s*h\.?\s*c\.?\s*m\.?",
     "rdw": r"rdw(?:[- ]cv)?",
-    "leucocitos": r"leuc[oó]citos(?:\s+totais)?",
-    "plaquetas": r"plaquetas",
+    "leucocitos": r"leuc[oó]citos(?:\s+totais)?|wbc",
+    "plaquetas": r"plaquetas|plt",
 }
 DATE_RX = r"\b(?:\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})\b"
 
@@ -58,17 +62,45 @@ def ler_documento(conteudo, nome, documento="Documento 1"):
                 raise ValueError("Limite de 30 páginas por PDF nesta versão.")
             for n, page in enumerate(reader.pages, 1):
                 text = page.extract_text() or ""
+                # Reconstrói as linhas pela posição visual para laudos tabulares.
+                try:
+                    layout = page.extract_text(extraction_mode="layout") or ""
+                except Exception:
+                    layout = ""
+                if layout.strip():
+                    text = layout
                 if not text.strip():
-                    avisos.append(
-                        f"Página {n} sem texto extraível: pode exigir OCR ou transcrição."
-                    )
+                    if n <= 5:
+                        try:
+                            text = reconhecer_pagina_pdf(conteudo, n - 1)
+                            avisos.append(
+                                f"Página {n} lida por OCR local; confira caracteres, números e datas."
+                            )
+                        except ValueError as erro:
+                            avisos.append(f"Página {n}: {erro}")
+                    else:
+                        avisos.append(
+                            f"Página {n} sem texto; OCR limitado às cinco primeiras páginas. Envie esta página separadamente."
+                        )
                 paginas.append({"pagina": n, "texto": text})
         except ValueError:
             raise
         except Exception:
             raise ValueError(
-                "Não foi possível ler o PDF. Confira o arquivo; não há OCR nesta versão."
+                "Não foi possível ler o PDF. Confira o arquivo e os avisos de leitura."
             ) from None
+    elif ext in {".png", ".jpg", ".jpeg"}:
+        from PIL import Image
+
+        try:
+            with Image.open(BytesIO(conteudo)) as imagem:
+                texto = reconhecer_imagem(imagem)
+            paginas = [{"pagina": 1, "texto": texto}]
+            avisos.append(
+                "Imagem lida por OCR local; confira todos os valores e datas."
+            )
+        except (OSError, Image.DecompressionBombError):
+            raise ValueError("Imagem inválida ou grande demais para leitura.") from None
     elif ext == ".docx":
         try:
             with ZipFile(BytesIO(conteudo)) as z:
@@ -100,7 +132,7 @@ def ler_documento(conteudo, nome, documento="Documento 1"):
         paginas = [{"pagina": 1, "texto": text}]
     else:
         raise ValueError(
-            "Use PDF com texto, DOCX ou TXT. Fotos e documentos digitalizados precisam de transcrição nesta versão."
+            "Use PDF, DOCX, TXT, PNG ou JPG. Imagens exigem OCR local instalado."
         )
     if sum(len(p["texto"]) for p in paginas) > 300_000:
         raise ValueError("Texto extraído excede o limite de 300 mil caracteres.")
@@ -135,21 +167,41 @@ def numero_candidato(token):
 
 def candidatos(doc):
     rows = []
+    from .preenchimento import datas_explicitas
+
     for page in doc["paginas"]:
-        for line in page["texto"].splitlines():
+        contexto = ""
+        resultado_no_bloco = False
+        datas_pendentes = set()
+        for line in linhas_de_resultados(page["texto"], ALIASES):
             if not line.strip():
                 continue
+            datas_linha = datas_explicitas(line)
+            if datas_linha:
+                if resultado_no_bloco:
+                    datas_pendentes = set()
+                datas_pendentes.update(datas_linha)
+                contexto = (
+                    next(iter(datas_pendentes)) if len(datas_pendentes) == 1 else ""
+                )
+                resultado_no_bloco = False
+            # A coluna de referência posterior ao resultado não apaga a observação.
+            line = re.split(r"(?i)\b(?:valores?\s+de\s+)?refer[eê]ncia\b", line)[0]
             # Ranges, condições e metas não são observações. Exclusão conservadora, não compreensão semântica.
             if re.search(
                 r"(?i)\b(meta|alvo|refer[eê]ncia|se|caso|objetivo|exemplo)\b|[<>≤≥]",
                 line,
             ):
                 continue
-            for param, alias in ALIASES.items():
+            aliases_pagina = dict(ALIASES)
+            if re.search(r"(?i)\bleucograma\b", page["texto"]):
+                aliases_pagina["leucocitos"] += r"|contagem\s+global"
+            for param, alias in aliases_pagina.items():
                 if param == "rdw" and re.search(r"(?i)rdw[- ]sd", line):
                     continue
                 pattern = (
-                    rf"(?i)(?<!\w)(?:{alias})\s*(?:[:=]|de)?\s*(\d+(?:[.,]\d+)*)(?!\w)"
+                    rf"(?i)(?<![\w.])(?:{alias})\s*(?:[:=]|de)?\s*"
+                    rf"[☑☒✓✔✗✘❎❌■↑↓*]*\s*(\d+(?:[.,]\d+)*)(?!\w)"
                 )
                 for match in re.finditer(pattern, line):
                     raw = match.group(1)
@@ -159,10 +211,11 @@ def candidatos(doc):
                     val, note = numero_candidato(raw)
                     tail = line[match.end() :]
                     unit_match = re.match(
-                        r"\s*(g/d[lL]|f[lL]|p[gG]|%|(?:milh[oõ]es|mil|c[eé]lulas)/(?:µ[lL]|u[lL]|mm[³3])|(?:µ[lL]|u[lL]))",
+                        r"(?i)\s*(10\s*\^\s*[36]/(?:µ[lL]|μ[lL]|u[lL]|mm[³3])|g/d[lL]|f[lL]|p[gG]|%|(?:milh[oõ]es|mil|c[eé]lulas)/(?:µ[lL]|u[lL]|mm[³3])|/(?:µ[lL]|u[lL]|mm[³3]))",
                         tail,
                     )
                     unit = unit_match.group(1) if unit_match else ""
+                    resultado_no_bloco = True
                     rows.append(
                         {
                             "usar": False,
@@ -174,6 +227,7 @@ def candidatos(doc):
                             "unidade_origem": unit,
                             "unidade_confirmada": unit,
                             "data_coleta": "",
+                            "data_contexto": contexto,
                             "trecho": line.strip()[:350],
                             "observacao": note
                             + " Data da coleta não atribuída automaticamente.",
@@ -199,17 +253,13 @@ def montar_tabela(confirmados):
         p = r["parametro"]
         if p not in PARAMETROS:
             raise ValueError("Parâmetro não suportado.")
-        s = str(r["data_coleta"]).strip()
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-            raise ValueError(
-                "Cada resultado selecionado precisa de data de coleta confirmada em AAAA-MM-DD, não apenas a data do relatório."
-            )
         try:
-            dt = date.fromisoformat(s)
-        except ValueError:
-            raise ValueError("Data de coleta inválida.") from None
-        if dt > date.today():
-            raise ValueError("Data de coleta futura.")
+            s = normalizar_data_coleta(r["data_coleta"]).isoformat()
+        except ValueError as erro:
+            raise ValueError(
+                f"{r.get('documento', 'Documento')}, {p}: {erro}. "
+                "Confirme a data da COLETA em AAAA-MM-DD ou DD/MM/AAAA."
+            ) from None
         target = PARAMETROS[p][1]
         if str(r["unidade_confirmada"]).strip() != target:
             raise ValueError(
